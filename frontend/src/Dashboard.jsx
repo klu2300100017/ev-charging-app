@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 
+const BACKEND = "https://ev-charging-backend-q5ua.onrender.com";
+
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const STATUS_COLORS = {
@@ -12,14 +14,14 @@ const STATUS_COLORS = {
 export default function Dashboard() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("upcoming"); // "upcoming" | "past"
+  const [tab, setTab] = useState("upcoming");
   const [retraining, setRetraining] = useState(false);
   const [retrainResult, setRetrainResult] = useState(null);
 
   const fetchBookings = async () => {
     setLoading(true);
     try {
-      const res = await axios.get("https://ev-charging-backend-q5ua.onrender.com");
+      const res = await axios.get(BACKEND + "/api/bookings");
       setBookings(res.data.bookings);
     } catch {
       alert("Could not fetch bookings. Make sure backend is running.");
@@ -31,13 +33,13 @@ export default function Dashboard() {
 
   const handleCancel = async (id) => {
     if (!window.confirm("Cancel this booking?")) return;
-    await axios.post("https://ev-charging-backend-q5ua.onrender.com/api/bookings/" + id + "/cancel");
+    await axios.post(BACKEND + "/api/bookings/" + id + "/cancel");
     fetchBookings();
   };
 
   const handleComplete = async (id) => {
     if (!window.confirm("Mark this booking as completed?")) return;
-    await axios.post("https://ev-charging-backend-q5ua.onrender.com/api/bookings/" + id + "/complete");
+    await axios.post(BACKEND + "/api/bookings/" + id + "/complete");
     fetchBookings();
   };
 
@@ -46,7 +48,7 @@ export default function Dashboard() {
     setRetraining(true);
     setRetrainResult(null);
     try {
-      const res = await axios.post("https://ev-charging-backend-q5ua.onrender.com/api/retrain");
+      const res = await axios.post(BACKEND + "/api/retrain");
       setRetrainResult(res.data);
     } catch {
       alert("Retraining failed. Make sure backend is running.");
@@ -54,7 +56,6 @@ export default function Dashboard() {
     setRetraining(false);
   };
 
-  // Split bookings into upcoming (confirmed) and past (completed + cancelled)
   const upcoming = bookings.filter(b => b.status === "confirmed");
   const past = bookings.filter(b => b.status === "completed" || b.status === "cancelled");
 
@@ -69,7 +70,6 @@ export default function Dashboard() {
     <div style={{ minHeight: "100vh", background: "#f9fafb", padding: "24px" }}>
       <div style={{ maxWidth: "900px", margin: "0 auto" }}>
 
-        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "28px" }}>
           <div>
             <h1 style={{ fontSize: "26px", fontWeight: "800", color: "#15803d", margin: 0 }}>Owner Dashboard</h1>
@@ -85,7 +85,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Stats */}
         <div style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
           {[
             { label: "Total", value: total, color: "#6b7280" },
@@ -100,7 +99,6 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Retrain result */}
         {retrainResult && (
           <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: "14px", padding: "16px 20px", marginBottom: "20px" }}>
             <p style={{ fontWeight: "700", color: "#15803d", marginBottom: "10px", fontSize: "15px" }}>Model Retrained Successfully!</p>
@@ -120,7 +118,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Tabs: Upcoming / Past Orders */}
         <div style={{ display: "flex", gap: "0", marginBottom: "20px", background: "#e5e7eb", borderRadius: "12px", padding: "4px" }}>
           {[
             { key: "upcoming", label: "Upcoming Bookings (" + confirmed + ")" },
@@ -148,7 +145,6 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Bookings list */}
         {loading ? (
           <p style={{ textAlign: "center", color: "#9ca3af", padding: "60px 0", fontSize: "16px" }}>Loading bookings...</p>
         ) : displayed.length === 0 ? (
@@ -174,15 +170,12 @@ export default function Dashboard() {
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ flex: 1 }}>
-
-                    {/* Name + status badge */}
                     <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
                       <span style={{ fontWeight: "700", fontSize: "16px", color: "#111827" }}>{b.user_name}</span>
                       <span style={{ fontSize: "11px", fontWeight: "700", padding: "3px 10px", borderRadius: "20px", background: sc.bg, color: sc.color }}>
                         {b.status.toUpperCase()}
                       </span>
                     </div>
-
                     <p style={{ fontSize: "14px", color: "#374151", margin: "3px 0" }}>
                       Station: <strong>{b.station_name}</strong>
                     </p>
@@ -202,7 +195,6 @@ export default function Dashboard() {
                     </p>
                   </div>
 
-                  {/* Action buttons */}
                   {b.status === "confirmed" && (
                     <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginLeft: "16px" }}>
                       <button

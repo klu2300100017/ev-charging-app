@@ -38,6 +38,8 @@ const getIcon = (wait) => {
   return redIcon;
 };
 
+const BACKEND = "https://ev-charging-backend-q5ua.onrender.com";
+
 const STATIONS = [
   { id: 1,  name: "EV Point - Hitech City",            lat: 17.4474, lng: 78.3762, load: 45, nearby: 3 },
   { id: 2,  name: "Charge Zone - Gachibowli",          lat: 17.4401, lng: 78.3489, load: 80, nearby: 2 },
@@ -114,9 +116,6 @@ function getNowDatetimeLocal() {
   return now.toISOString().slice(0, 16);
 }
 
-// ---------------------------------------------------------------------------
-// Booking Modal
-// ---------------------------------------------------------------------------
 function BookingModal({ station, prefilledTime, onClose, onSuccess }) {
   const [form, setForm] = useState({
     user_name: "",
@@ -143,7 +142,7 @@ function BookingModal({ station, prefilledTime, onClose, onSuccess }) {
     const stationData = STATIONS.find(s => s.id === station.id);
 
     try {
-      await axios.post("https://ev-charging-backend-q5ua.onrender.com", {
+      await axios.post(BACKEND + "/api/book", {
         station_id: station.id,
         station_name: station.name,
         user_name: form.user_name,
@@ -164,7 +163,7 @@ function BookingModal({ station, prefilledTime, onClose, onSuccess }) {
   };
 
   const slotDate = new Date(form.slot_time);
-  const isNow = Math.abs(slotDate - new Date()) < 5 * 60 * 1000; // within 5 min = now
+  const isNow = Math.abs(slotDate - new Date()) < 5 * 60 * 1000;
 
   return (
     <div
@@ -271,9 +270,6 @@ export default function App() {
     return { hour: now.getHours(), day: now.getDay() === 0 ? 6 : now.getDay() - 1 };
   };
 
-  // The prefilled time for booking modal:
-  // if bookForLater is on → use that selected time
-  // if bookForLater is off → use real current time
   const getPrefilledTime = () => {
     if (bookForLater && laterDatetime) return laterDatetime;
     return getNowDatetimeLocal();
@@ -318,7 +314,11 @@ export default function App() {
     }
 
     try {
-      const res = await axios.post("http://localhost:5000/api/predict", { hour, day_of_week: day, stations: nearbyStations });
+      const res = await axios.post(BACKEND + "/api/predict", {
+        hour,
+        day_of_week: day,
+        stations: nearbyStations,
+      });
       setResults(res.data.stations);
       setBestStation(res.data.stations[0]);
     } catch {
