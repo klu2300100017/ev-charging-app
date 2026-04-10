@@ -116,71 +116,32 @@ function getNowDatetimeLocal() {
   return now.toISOString().slice(0, 16);
 }
 
-// ─── OTP Booking Modal (2 steps) ────────────────────────────────────────────
 function BookingModal({ station, prefilledTime, onClose, onSuccess }) {
-  const [step, setStep] = useState(1); // 1 = fill form, 2 = enter OTP
   const [form, setForm] = useState({
     user_name: "",
     phone: "",
     vehicle_no: "",
     slot_time: prefilledTime || getNowDatetimeLocal(),
   });
-  const [otp, setOtp] = useState("");
-  const [sending, setSending] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [resendTimer, setResendTimer] = useState(0);
   const [error, setError] = useState("");
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
-  // Step 1: validate form and send OTP
-  const handleSendOtp = async () => {
+  const handleSubmit = async () => {
     if (!form.user_name || !form.phone || !form.vehicle_no || !form.slot_time) {
       setError("Please fill all fields.");
-      return;
-    }
-    if (form.phone.length !== 10 || !/^\d+$/.test(form.phone)) {
-      setError("Enter a valid 10-digit phone number.");
-      return;
-    }
-    setSending(true);
-    setError("");
-    try {
-      await axios.post(BACKEND + "/api/send-otp", { phone: form.phone });
-      setStep(2);
-      // start 30s resend timer
-      setResendTimer(30);
-      const interval = setInterval(() => {
-        setResendTimer(prev => {
-          if (prev <= 1) { clearInterval(interval); return 0; }
-          return prev - 1;
-        });
-      }, 1000);
-    } catch (err) {
-      setError(err.response?.data?.error || "Failed to send OTP. Try again.");
-    }
-    setSending(false);
-  };
-
-  // Step 2: verify OTP then book
-  const handleVerifyAndBook = async () => {
-    if (!otp || otp.length !== 6) {
-      setError("Enter the 6-digit OTP.");
       return;
     }
     setSubmitting(true);
     setError("");
 
+    const slotDate = new Date(form.slot_time);
+    const slotHour = slotDate.getHours();
+    const slotDay = slotDate.getDay() === 0 ? 6 : slotDate.getDay() - 1;
+    const stationData = STATIONS.find(s => s.id === station.id);
+
     try {
-      // Verify OTP first
-      await axios.post(BACKEND + "/api/verify-otp", { phone: form.phone, otp });
-
-      // OTP correct — now book the slot
-      const slotDate = new Date(form.slot_time);
-      const slotHour = slotDate.getHours();
-      const slotDay = slotDate.getDay() === 0 ? 6 : slotDate.getDay() - 1;
-      const stationData = STATIONS.find(s => s.id === station.id);
-
       await axios.post(BACKEND + "/api/book", {
         station_id: station.id,
         station_name: station.name,
@@ -194,178 +155,82 @@ function BookingModal({ station, prefilledTime, onClose, onSuccess }) {
         nearby_stations: stationData ? stationData.nearby : 2,
         distance_km: station.distance || 1.0,
       });
-
       onSuccess();
-    } catch (err) {
-      setError(err.response?.data?.error || "Verification failed. Try again.");
+    } catch {
+      setError("Booking failed. Make sure backend is running.");
     }
     setSubmitting(false);
   };
 
-  const handleResendOtp = async () => {
-    if (resendTimer > 0) return;
-    setError("");
-    setSending(true);
-    try {
-      await axios.post(BACKEND + "/api/send-otp", { phone: form.phone });
-      setResendTimer(30);
-      const interval = setInterval(() => {
-        setResendTimer(prev => {
-          if (prev <= 1) { clearInterval(interval); return 0; }
-          return prev - 1;
-        });
-      }, 1000);
-    } catch (err) {
-      setError(err.response?.data?.error || "Failed to resend OTP.");
-    }
-    setSending(false);
-  };
-
   const slotDate = new Date(form.slot_time);
+  const isNow = Math.abs(slotDate - new Date()) < 5 * 60 * 1000;
 
   return (
     <div
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
       onClick={onClose}
     >
       <div
-        style={{ background: "white", borderRadius: "20px", padding: "28px", width: "100%", maxWidth: "420px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}
+        style={{ background: "white", borderRadius: "16px", padding: "24px", width: "100%", maxWidth: "420px" }}
         onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-          <div>
-            <h2 style={{ fontWeight: "800", fontSize: "20px", color: "#15803d", margin: 0 }}>Book a Slot</h2>
-            <p style={{ fontSize: "12px", color: "#9ca3af", marginTop: "2px" }}>
-              {step === 1 ? "Step 1 of 2 — Fill your details" : "Step 2 of 2 — Verify your phone"}
-            </p>
-          </div>
-          <button onClick={onClose} style={{ background: "#f3f4f6", border: "none", borderRadius: "50%", width: "32px", height: "32px", cursor: "pointer", fontSize: "16px", color: "#6b7280" }}>x</button>
+          <h2 style={{ fontWeight: "bold", fontSize: "18px", color: "#15803d", margin: 0 }}>Book a Slot</h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "20px", cursor: "pointer", color: "#6b7280" }}>x</button>
         </div>
 
-        {/* Step indicator */}
-        <div style={{ display: "flex", gap: "6px", marginBottom: "20px" }}>
-          <div style={{ flex: 1, height: "4px", borderRadius: "4px", background: "#16a34a" }} />
-          <div style={{ flex: 1, height: "4px", borderRadius: "4px", background: step === 2 ? "#16a34a" : "#e5e7eb" }} />
-        </div>
-
-        {/* Station info */}
-        <div style={{ background: "#f0fdf4", borderRadius: "12px", padding: "12px 16px", marginBottom: "20px", borderLeft: "4px solid #16a34a" }}>
-          <p style={{ fontWeight: "700", fontSize: "14px", color: "#166534", margin: 0 }}>{station.name}</p>
+        <div style={{ background: "#f0fdf4", borderRadius: "10px", padding: "10px 14px", marginBottom: "16px" }}>
+          <p style={{ fontWeight: "600", fontSize: "14px", color: "#166534", margin: 0 }}>{station.name}</p>
           <p style={{ fontSize: "12px", color: "#4b5563", marginTop: "4px", margin: "4px 0 0 0" }}>
             {station.wait_time_minutes} min predicted wait | {station.distance} km away
           </p>
         </div>
 
-        {/* ── STEP 1: Form ── */}
-        {step === 1 && (
-          <>
-            {[
-              { label: "Full Name", name: "user_name", placeholder: "Enter your name", type: "text" },
-              { label: "Phone Number (for OTP)", name: "phone", placeholder: "10-digit mobile number", type: "tel", maxLength: 10 },
-              { label: "Vehicle Number", name: "vehicle_no", placeholder: "e.g. TS09EX1234", type: "text" },
-            ].map(field => (
-              <div key={field.name} style={{ marginBottom: "14px" }}>
-                <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: "#374151", marginBottom: "5px" }}>{field.label}</label>
-                <input
-                  name={field.name}
-                  value={form[field.name]}
-                  onChange={handleChange}
-                  placeholder={field.placeholder}
-                  type={field.type}
-                  maxLength={field.maxLength}
-                  style={{ width: "100%", border: "1.5px solid #d1d5db", borderRadius: "10px", padding: "10px 14px", fontSize: "14px", boxSizing: "border-box", outline: "none" }}
-                />
-              </div>
-            ))}
+        {[
+          { label: "Full Name", name: "user_name", placeholder: "Enter your name" },
+          { label: "Phone Number", name: "phone", placeholder: "Enter your phone number" },
+          { label: "Vehicle Number", name: "vehicle_no", placeholder: "e.g. TS09EX1234" },
+        ].map(field => (
+          <div key={field.name} style={{ marginBottom: "12px" }}>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#374151", marginBottom: "4px" }}>{field.label}</label>
+            <input
+              name={field.name}
+              value={form[field.name]}
+              onChange={handleChange}
+              placeholder={field.placeholder}
+              style={{ width: "100%", border: "1px solid #d1d5db", borderRadius: "8px", padding: "8px 12px", fontSize: "14px", boxSizing: "border-box" }}
+            />
+          </div>
+        ))}
 
-            <div style={{ marginBottom: "20px" }}>
-              <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: "#374151", marginBottom: "5px" }}>Slot Date and Time</label>
-              <input
-                type="datetime-local"
-                name="slot_time"
-                value={form.slot_time}
-                min={getNowDatetimeLocal()}
-                onChange={handleChange}
-                style={{ width: "100%", border: "1.5px solid #d1d5db", borderRadius: "10px", padding: "10px 14px", fontSize: "14px", boxSizing: "border-box" }}
-              />
-              <p style={{ fontSize: "11px", color: "#6b7280", marginTop: "4px" }}>
-                {"Slot: " + slotDate.toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: true })}
-              </p>
-            </div>
+        <div style={{ marginBottom: "16px" }}>
+          <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#374151", marginBottom: "4px" }}>
+            Slot Date and Time
+          </label>
+          <input
+            type="datetime-local"
+            name="slot_time"
+            value={form.slot_time}
+            min={getNowDatetimeLocal()}
+            onChange={handleChange}
+            style={{ width: "100%", border: "1px solid #d1d5db", borderRadius: "8px", padding: "8px 12px", fontSize: "14px", boxSizing: "border-box" }}
+          />
+          <p style={{ fontSize: "11px", color: isNow ? "#16a34a" : "#6b7280", marginTop: "4px" }}>
+            {isNow
+              ? "Booking for right now"
+              : "Booking for: " + slotDate.toLocaleString("en-IN", { weekday: "long", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: true })}
+          </p>
+        </div>
 
-            {error && <p style={{ color: "#dc2626", fontSize: "13px", marginBottom: "12px", background: "#fef2f2", padding: "10px", borderRadius: "8px" }}>{error}</p>}
+        {error && <p style={{ color: "#dc2626", fontSize: "13px", marginBottom: "12px" }}>{error}</p>}
 
-            <button
-              onClick={handleSendOtp}
-              disabled={sending}
-              style={{ width: "100%", background: sending ? "#86efac" : "#16a34a", color: "white", fontWeight: "700", padding: "14px", borderRadius: "12px", border: "none", cursor: sending ? "not-allowed" : "pointer", fontSize: "15px" }}
-            >
-              {sending ? "Sending OTP..." : "Send OTP to My Phone"}
-            </button>
-          </>
-        )}
-
-        {/* ── STEP 2: OTP ── */}
-        {step === 2 && (
-          <>
-            <div style={{ textAlign: "center", marginBottom: "24px" }}>
-              <div style={{ fontSize: "48px", marginBottom: "8px" }}>📱</div>
-              <p style={{ fontSize: "15px", color: "#374151", fontWeight: "600" }}>OTP sent to +91 {form.phone}</p>
-              <p style={{ fontSize: "13px", color: "#6b7280", marginTop: "4px" }}>Enter the 6-digit code you received</p>
-            </div>
-
-            <div style={{ marginBottom: "20px" }}>
-              <label style={{ display: "block", fontSize: "13px", fontWeight: "600", color: "#374151", marginBottom: "8px", textAlign: "center" }}>Enter OTP</label>
-              <input
-                value={otp}
-                onChange={e => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="------"
-                maxLength={6}
-                style={{
-                  width: "100%",
-                  border: "2px solid #16a34a",
-                  borderRadius: "12px",
-                  padding: "14px",
-                  fontSize: "28px",
-                  fontWeight: "800",
-                  textAlign: "center",
-                  letterSpacing: "12px",
-                  boxSizing: "border-box",
-                  color: "#15803d",
-                  outline: "none",
-                }}
-              />
-            </div>
-
-            {error && <p style={{ color: "#dc2626", fontSize: "13px", marginBottom: "12px", background: "#fef2f2", padding: "10px", borderRadius: "8px", textAlign: "center" }}>{error}</p>}
-
-            <button
-              onClick={handleVerifyAndBook}
-              disabled={submitting || otp.length !== 6}
-              style={{ width: "100%", background: otp.length === 6 ? "#16a34a" : "#d1d5db", color: otp.length === 6 ? "white" : "#9ca3af", fontWeight: "700", padding: "14px", borderRadius: "12px", border: "none", cursor: otp.length === 6 ? "pointer" : "not-allowed", fontSize: "15px", marginBottom: "12px" }}
-            >
-              {submitting ? "Verifying & Booking..." : "Verify OTP & Confirm Booking"}
-            </button>
-
-            <div style={{ textAlign: "center" }}>
-              <button
-                onClick={handleResendOtp}
-                disabled={resendTimer > 0 || sending}
-                style={{ background: "none", border: "none", fontSize: "13px", cursor: resendTimer > 0 ? "not-allowed" : "pointer", color: resendTimer > 0 ? "#9ca3af" : "#1d4ed8", fontWeight: "600" }}
-              >
-                {resendTimer > 0 ? "Resend OTP in " + resendTimer + "s" : "Resend OTP"}
-              </button>
-              <span style={{ margin: "0 8px", color: "#d1d5db" }}>|</span>
-              <button
-                onClick={() => { setStep(1); setOtp(""); setError(""); }}
-                style={{ background: "none", border: "none", fontSize: "13px", cursor: "pointer", color: "#6b7280" }}
-              >
-                Edit Details
-              </button>
-            </div>
-          </>
-        )}
+        <button
+          onClick={handleSubmit}
+          disabled={submitting}
+          style={{ width: "100%", background: submitting ? "#86efac" : "#16a34a", color: "white", fontWeight: "bold", padding: "12px", borderRadius: "10px", border: "none", cursor: "pointer", fontSize: "15px" }}
+        >
+          {submitting ? "Booking..." : "Confirm Booking"}
+        </button>
       </div>
     </div>
   );
@@ -449,7 +314,11 @@ export default function App() {
     }
 
     try {
-      const res = await axios.post(BACKEND + "/api/predict", { hour, day_of_week: day, stations: nearbyStations });
+      const res = await axios.post(BACKEND + "/api/predict", {
+        hour,
+        day_of_week: day,
+        stations: nearbyStations,
+      });
       setResults(res.data.stations);
       setBestStation(res.data.stations[0]);
     } catch {
@@ -642,8 +511,8 @@ export default function App() {
             </ul>
           </div>
           <div className="mb-4">
-            <h3 className="font-semibold text-gray-700 mb-1">OTP Verification</h3>
-            <p className="text-sm text-gray-500">Every booking requires phone OTP verification via Fast2SMS to ensure only genuine users can book slots. OTP expires in 5 minutes.</p>
+            <h3 className="font-semibold text-gray-700 mb-1">Self-Improving Model</h3>
+            <p className="text-sm text-gray-500">Every booking saves the real station load, day, and hour. The owner can retrain the model anytime using this real data, making predictions smarter over time per station, per day, and per time slot.</p>
           </div>
           <div>
             <h3 className="font-semibold text-gray-700 mb-1">Model Accuracy</h3>
@@ -669,8 +538,8 @@ export default function App() {
           onClose={() => setBookingStation(null)}
           onSuccess={() => {
             setBookingStation(null);
-            setToast("Slot booked successfully! Check your phone for confirmation.");
-            setTimeout(() => setToast(""), 4000);
+            setToast("Slot booked successfully!");
+            setTimeout(() => setToast(""), 3500);
           }}
         />
       )}

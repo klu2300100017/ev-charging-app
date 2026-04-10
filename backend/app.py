@@ -4,19 +4,12 @@ import joblib
 import numpy as np
 import mysql.connector
 from datetime import datetime
-import random
-import requests as http_requests
 
 app = Flask(__name__)
 CORS(app)
 
 clf = joblib.load('model_avail.pkl')
 reg = joblib.load('model_wait.pkl')
-
-FAST2SMS_API_KEY = "h4ztb06GEKmuvxcDXNgPnFUdBZI1y2M7HVfeaQJlprLSYRqosAXIsyx84GKRhoWZ3lHJmrF7zunY5ptb"
-
-# In-memory OTP store: { phone: { otp, expires_at } }
-otp_store = {}
 
 # ---------------------------------------------------------------------------
 # MySQL connection
@@ -36,64 +29,6 @@ def get_db():
 @app.route('/api/health', methods=['GET'])
 def health():
     return jsonify({"status": "ok"})
-
-# ---------------------------------------------------------------------------
-# Send OTP
-# ---------------------------------------------------------------------------
-@app.route('/api/send-otp', methods=['POST'])
-def send_otp():
-    data = request.get_json()
-    phone = str(data.get('phone', '')).strip()
-
-    if not phone or len(phone) != 10 or not phone.isdigit():
-        return jsonify({"error": "Enter a valid 10-digit phone number"}), 400
-
-    otp = str(random.randint(100000, 999999))
-    import time
-    otp_store[phone] = {"otp": otp, "expires_at": time.time() + 300}  # 5 min expiry
-
-    try:
-        response = http_requests.post(
-            "https://www.fast2sms.com/dev/bulkV2",
-            headers={"authorization": FAST2SMS_API_KEY},
-            json={
-                "route": "otp",
-                "variables_values": otp,
-                "numbers": phone,
-            },
-            timeout=10
-        )
-        result = response.json()
-        if result.get("return") == True:
-            return jsonify({"message": "OTP sent successfully!"})
-        else:
-            return jsonify({"error": "Failed to send OTP: " + str(result)}), 500
-    except Exception as e:
-        return jsonify({"error": "SMS service error: " + str(e)}), 500
-
-# ---------------------------------------------------------------------------
-# Verify OTP
-# ---------------------------------------------------------------------------
-@app.route('/api/verify-otp', methods=['POST'])
-def verify_otp():
-    import time
-    data = request.get_json()
-    phone = str(data.get('phone', '')).strip()
-    entered_otp = str(data.get('otp', '')).strip()
-
-    record = otp_store.get(phone)
-    if not record:
-        return jsonify({"error": "OTP not sent or expired. Please request again."}), 400
-
-    if time.time() > record["expires_at"]:
-        del otp_store[phone]
-        return jsonify({"error": "OTP expired. Please request a new one."}), 400
-
-    if record["otp"] != entered_otp:
-        return jsonify({"error": "Incorrect OTP. Please try again."}), 400
-
-    del otp_store[phone]
-    return jsonify({"message": "OTP verified successfully!"})
 
 # ---------------------------------------------------------------------------
 # ML Prediction
@@ -267,13 +202,23 @@ def retrain():
             load = int(b.get('load_at_booking') or 70)
             nearby = int(b.get('nearby_stations') or 2)
             distance = float(b.get('distance_km') or 1.0)
-            wait = round(load * 0.4 + (10 if 7 <= hour <= 9 or 17 <= hour <= 20 else 0), 1)
+
+            wait = round(
+                load * 0.4 +
+                (10 if 7 <= hour <= 9 or 17 <= hour <= 20 else 0),
+                1
+            )
             wait = min(wait, 90)
             is_avail = 1 if load < 80 else 0
+
             new_rows.append({
-                'hour_of_day': hour, 'day_of_week': day,
-                'current_load_percent': load, 'nearby_stations': nearby,
-                'distance_km': distance, 'wait_time_minutes': wait, 'is_available': is_avail,
+                'hour_of_day': hour,
+                'day_of_week': day,
+                'current_load_percent': load,
+                'nearby_stations': nearby,
+                'distance_km': distance,
+                'wait_time_minutes': wait,
+                'is_available': is_avail,
             })
         except Exception:
             continue
