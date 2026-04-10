@@ -31,13 +31,13 @@ export default function Dashboard() {
 
   const handleCancel = async (id) => {
     if (!window.confirm("Cancel this booking?")) return;
-    await axios.post("http://localhost:5000/api/bookings/" + id + "/cancel");
+    await axios.post("https://ev-charging-backend-q5ua.onrender.com/api/bookings/" + id + "/cancel");
     fetchBookings();
   };
 
   const handleComplete = async (id) => {
     if (!window.confirm("Mark this booking as completed?")) return;
-    await axios.post("http://localhost:5000/api/bookings/" + id + "/complete");
+    await axios.post("https://ev-charging-backend-q5ua.onrender.com/api/bookings/" + id + "/complete");
     fetchBookings();
   };
 
@@ -46,7 +46,7 @@ export default function Dashboard() {
     setRetraining(true);
     setRetrainResult(null);
     try {
-      const res = await axios.post("http://localhost:5000/api/retrain");
+      const res = await axios.post("https://ev-charging-backend-q5ua.onrender.com/api/retrain");
       setRetrainResult(res.data);
     } catch {
       alert("Retraining failed. Make sure backend is running.");
