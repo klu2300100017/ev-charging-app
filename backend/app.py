@@ -16,10 +16,11 @@ reg = joblib.load('model_wait.pkl')
 # ---------------------------------------------------------------------------
 def get_db():
     return mysql.connector.connect(
-        host="localhost",
+        host="mainline.proxy.rlwy.net",
         user="root",
-        password="Jashwanthetla@05",
-        database="ev_charging"
+        password="SrxozRUfVJqEoeGKefcdsPAYtLgATgUM",
+        database="railway",
+        port=31614
     )
 
 # ---------------------------------------------------------------------------
@@ -186,7 +187,6 @@ def retrain():
     ).clip(0, 90)
     data['is_available'] = (data['current_load_percent'] < 80).astype(int)
 
-    # Pull confirmed and completed bookings for retraining
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM bookings WHERE status IN ('confirmed', 'completed')")
