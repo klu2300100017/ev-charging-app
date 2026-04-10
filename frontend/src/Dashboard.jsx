@@ -19,7 +19,7 @@ export default function Dashboard() {
   const fetchBookings = async () => {
     setLoading(true);
     try {
-      const res = await axios.get("http://localhost:5000/api/bookings");
+      const res = await axios.get("https://ev-charging-backend-q5ua.onrender.com");
       setBookings(res.data.bookings);
     } catch {
       alert("Could not fetch bookings. Make sure backend is running.");

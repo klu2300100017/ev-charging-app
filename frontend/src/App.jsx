@@ -143,7 +143,7 @@ function BookingModal({ station, prefilledTime, onClose, onSuccess }) {
     const stationData = STATIONS.find(s => s.id === station.id);
 
     try {
-      await axios.post("http://localhost:5000/api/book", {
+      await axios.post("https://ev-charging-backend-q5ua.onrender.com", {
         station_id: station.id,
         station_name: station.name,
         user_name: form.user_name,
