@@ -89,7 +89,7 @@ function MapFlyTo({ center }) {
   return null;
 }
 
-function StationPopup({ s, station, onDirections }) {
+function StationPopup({ s, onDirections }) {
   return (
     <Popup>
       <div style={{ minWidth: "160px" }}>
@@ -99,16 +99,7 @@ function StationPopup({ s, station, onDirections }) {
         <div>{"Distance: " + s.distance + " km"}</div>
         <button
           onClick={() => onDirections(s)}
-          style={{
-            marginTop: "6px",
-            color: "white",
-            background: "green",
-            border: "none",
-            borderRadius: "4px",
-            padding: "4px 8px",
-            cursor: "pointer",
-            width: "100%",
-          }}
+          style={{ marginTop: "6px", color: "white", background: "green", border: "none", borderRadius: "4px", padding: "4px 8px", cursor: "pointer", width: "100%" }}
         >
           Get Directions
         </button>
@@ -117,33 +108,150 @@ function StationPopup({ s, station, onDirections }) {
   );
 }
 
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-
-// Helper: get minimum datetime string for input (now)
 function getNowDatetimeLocal() {
   const now = new Date();
   now.setSeconds(0, 0);
   return now.toISOString().slice(0, 16);
 }
 
-export default function App() {
-  const now = new Date();
+// ---------------------------------------------------------------------------
+// Booking Modal
+// ---------------------------------------------------------------------------
+function BookingModal({ station, prefilledTime, onClose, onSuccess }) {
+  const [form, setForm] = useState({
+    user_name: "",
+    phone: "",
+    vehicle_no: "",
+    slot_time: prefilledTime || getNowDatetimeLocal(),
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  // Auto time: always use current device time
-  const [bookForLater, setBookForLater] = useState(false);
-  const [laterDatetime, setLaterDatetime] = useState(getNowDatetimeLocal());
+  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
-  // Compute actual hour and day to send to backend
-  const getHourAndDay = () => {
-    if (bookForLater && laterDatetime) {
-      const d = new Date(laterDatetime);
-      const dayIndex = d.getDay() === 0 ? 6 : d.getDay() - 1;
-      return { hour: d.getHours(), day: dayIndex };
+  const handleSubmit = async () => {
+    if (!form.user_name || !form.phone || !form.vehicle_no || !form.slot_time) {
+      setError("Please fill all fields.");
+      return;
     }
-    const dayIndex = now.getDay() === 0 ? 6 : now.getDay() - 1;
-    return { hour: now.getHours(), day: dayIndex };
+    setSubmitting(true);
+    setError("");
+
+    const slotDate = new Date(form.slot_time);
+    const slotHour = slotDate.getHours();
+    const slotDay = slotDate.getDay() === 0 ? 6 : slotDate.getDay() - 1;
+    const stationData = STATIONS.find(s => s.id === station.id);
+
+    try {
+      await axios.post("http://localhost:5000/api/book", {
+        station_id: station.id,
+        station_name: station.name,
+        user_name: form.user_name,
+        phone: form.phone,
+        vehicle_no: form.vehicle_no,
+        slot_time: slotDate.toLocaleString("en-IN"),
+        hour_of_day: slotHour,
+        day_of_week: slotDay,
+        load_at_booking: stationData ? stationData.load : 70,
+        nearby_stations: stationData ? stationData.nearby : 2,
+        distance_km: station.distance || 1.0,
+      });
+      onSuccess();
+    } catch {
+      setError("Booking failed. Make sure backend is running.");
+    }
+    setSubmitting(false);
   };
 
+  const slotDate = new Date(form.slot_time);
+  const isNow = Math.abs(slotDate - new Date()) < 5 * 60 * 1000; // within 5 min = now
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: "white", borderRadius: "16px", padding: "24px", width: "100%", maxWidth: "420px" }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+          <h2 style={{ fontWeight: "bold", fontSize: "18px", color: "#15803d", margin: 0 }}>Book a Slot</h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "20px", cursor: "pointer", color: "#6b7280" }}>x</button>
+        </div>
+
+        <div style={{ background: "#f0fdf4", borderRadius: "10px", padding: "10px 14px", marginBottom: "16px" }}>
+          <p style={{ fontWeight: "600", fontSize: "14px", color: "#166534", margin: 0 }}>{station.name}</p>
+          <p style={{ fontSize: "12px", color: "#4b5563", marginTop: "4px", margin: "4px 0 0 0" }}>
+            {station.wait_time_minutes} min predicted wait | {station.distance} km away
+          </p>
+        </div>
+
+        {[
+          { label: "Full Name", name: "user_name", placeholder: "Enter your name" },
+          { label: "Phone Number", name: "phone", placeholder: "Enter your phone number" },
+          { label: "Vehicle Number", name: "vehicle_no", placeholder: "e.g. TS09EX1234" },
+        ].map(field => (
+          <div key={field.name} style={{ marginBottom: "12px" }}>
+            <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#374151", marginBottom: "4px" }}>{field.label}</label>
+            <input
+              name={field.name}
+              value={form[field.name]}
+              onChange={handleChange}
+              placeholder={field.placeholder}
+              style={{ width: "100%", border: "1px solid #d1d5db", borderRadius: "8px", padding: "8px 12px", fontSize: "14px", boxSizing: "border-box" }}
+            />
+          </div>
+        ))}
+
+        <div style={{ marginBottom: "16px" }}>
+          <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#374151", marginBottom: "4px" }}>
+            Slot Date and Time
+          </label>
+          <input
+            type="datetime-local"
+            name="slot_time"
+            value={form.slot_time}
+            min={getNowDatetimeLocal()}
+            onChange={handleChange}
+            style={{ width: "100%", border: "1px solid #d1d5db", borderRadius: "8px", padding: "8px 12px", fontSize: "14px", boxSizing: "border-box" }}
+          />
+          <p style={{ fontSize: "11px", color: isNow ? "#16a34a" : "#6b7280", marginTop: "4px" }}>
+            {isNow
+              ? "Booking for right now"
+              : "Booking for: " + slotDate.toLocaleString("en-IN", { weekday: "long", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: true })}
+          </p>
+        </div>
+
+        {error && <p style={{ color: "#dc2626", fontSize: "13px", marginBottom: "12px" }}>{error}</p>}
+
+        <button
+          onClick={handleSubmit}
+          disabled={submitting}
+          style={{ width: "100%", background: submitting ? "#86efac" : "#16a34a", color: "white", fontWeight: "bold", padding: "12px", borderRadius: "10px", border: "none", cursor: "pointer", fontSize: "15px" }}
+        >
+          {submitting ? "Booking..." : "Confirm Booking"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SuccessToast({ message, onClose }) {
+  return (
+    <div style={{ position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)", background: "#16a34a", color: "white", padding: "14px 28px", borderRadius: "12px", fontWeight: "600", fontSize: "15px", zIndex: 99999, boxShadow: "0 4px 20px rgba(0,0,0,0.2)" }}>
+      {message}
+      <button onClick={onClose} style={{ marginLeft: "16px", background: "none", border: "none", color: "white", cursor: "pointer", fontSize: "16px" }}>x</button>
+    </div>
+  );
+}
+
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+export default function App() {
+  const now = new Date();
+  const [bookForLater, setBookForLater] = useState(false);
+  const [laterDatetime, setLaterDatetime] = useState(getNowDatetimeLocal());
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -152,6 +260,24 @@ export default function App() {
   const [bestStation, setBestStation] = useState(null);
   const [radius, setRadius] = useState(30);
   const [usedTime, setUsedTime] = useState(null);
+  const [bookingStation, setBookingStation] = useState(null);
+  const [toast, setToast] = useState("");
+
+  const getHourAndDay = () => {
+    if (bookForLater && laterDatetime) {
+      const d = new Date(laterDatetime);
+      return { hour: d.getHours(), day: d.getDay() === 0 ? 6 : d.getDay() - 1 };
+    }
+    return { hour: now.getHours(), day: now.getDay() === 0 ? 6 : now.getDay() - 1 };
+  };
+
+  // The prefilled time for booking modal:
+  // if bookForLater is on → use that selected time
+  // if bookForLater is off → use real current time
+  const getPrefilledTime = () => {
+    if (bookForLater && laterDatetime) return laterDatetime;
+    return getNowDatetimeLocal();
+  };
 
   const handleGetLocation = () => {
     setLocationStatus("Detecting your location...");
@@ -170,24 +296,18 @@ export default function App() {
   const handlePredict = async () => {
     const loc = userLocation || { lat: 17.385, lng: 78.4867 };
     const { hour, day } = getHourAndDay();
-
     setLoading(true);
     setSearched(true);
 
-    // Store what time was used for display
     if (bookForLater && laterDatetime) {
       const d = new Date(laterDatetime);
       setUsedTime(d.toLocaleString("en-IN", { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: true }));
     } else {
-      const n = new Date();
-      setUsedTime("Now (" + n.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }) + ")");
+      setUsedTime("Now (" + now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }) + ")");
     }
 
     const nearbyStations = STATIONS
-      .map(s => ({
-        ...s,
-        distance: parseFloat(getDistanceKm(loc.lat, loc.lng, s.lat, s.lng).toFixed(1)),
-      }))
+      .map(s => ({ ...s, distance: parseFloat(getDistanceKm(loc.lat, loc.lng, s.lat, s.lng).toFixed(1)) }))
       .filter(s => s.distance <= radius);
 
     if (nearbyStations.length === 0) {
@@ -198,15 +318,10 @@ export default function App() {
     }
 
     try {
-      const res = await axios.post("http://localhost:5000/api/predict", {
-        hour,
-        day_of_week: day,
-        stations: nearbyStations,
-      });
-      const sorted = res.data.stations;
-      setResults(sorted);
-      setBestStation(sorted[0]);
-    } catch (err) {
+      const res = await axios.post("http://localhost:5000/api/predict", { hour, day_of_week: day, stations: nearbyStations });
+      setResults(res.data.stations);
+      setBestStation(res.data.stations[0]);
+    } catch {
       alert("Backend not running! Start Flask first.");
     }
     setLoading(false);
@@ -215,8 +330,7 @@ export default function App() {
   const openGoogleMaps = (station) => {
     const found = STATIONS.find(s => s.id === station.id);
     if (!found) return;
-    const url = "https://www.google.com/maps/dir/?api=1&destination=" + found.lat + "," + found.lng + "&travelmode=driving";
-    window.open(url, "_blank");
+    window.open("https://www.google.com/maps/dir/?api=1&destination=" + found.lat + "," + found.lng + "&travelmode=driving", "_blank");
   };
 
   const getColor = (wait) => {
@@ -231,83 +345,51 @@ export default function App() {
     return "Avoid Now";
   };
 
-  const currentTimeDisplay = now.toLocaleTimeString("en-IN", {
-    hour: "2-digit", minute: "2-digit", hour12: true,
-  }) + ", " + DAYS[now.getDay() === 0 ? 6 : now.getDay() - 1];
+  const currentTimeDisplay = now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true }) + ", " + DAYS[now.getDay() === 0 ? 6 : now.getDay() - 1];
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-2xl mx-auto">
 
-        {/* Header */}
         <div className="text-center mb-6">
           <h1 className="text-3xl font-bold text-green-700">EV Charging Finder</h1>
-          <p className="text-gray-500 mt-1 text-sm">Finds the best charging station near you using AI</p>
+          <p className="text-gray-500 text-sm mt-1">Finds the best charging station near you using AI</p>
         </div>
 
-        {/* Form Card */}
         <div className="bg-white rounded-2xl shadow p-6 mb-6">
-
-          {/* Location */}
           <div className="mb-4">
-            <button
-              onClick={handleGetLocation}
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-xl transition text-sm"
-            >
+            <button onClick={handleGetLocation} className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-xl transition text-sm">
               Detect My Location
             </button>
-            {locationStatus && (
-              <p className="text-xs text-gray-500 mt-2 text-center">{locationStatus}</p>
-            )}
+            {locationStatus && <p className="text-xs text-gray-500 mt-2 text-center">{locationStatus}</p>}
           </div>
 
-          {/* Radius */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Search Radius: <span className="text-green-600 font-bold">{radius} km</span>
             </label>
-            <input
-              type="range" min="5" max="100" step="5" value={radius}
-              onChange={e => setRadius(Number(e.target.value))}
-              className="w-full accent-green-600"
-            />
+            <input type="range" min="5" max="100" step="5" value={radius} onChange={e => setRadius(Number(e.target.value))} className="w-full accent-green-600" />
             <div className="flex justify-between text-xs text-gray-400 mt-1">
               <span>5 km</span><span>50 km</span><span>100 km</span>
             </div>
           </div>
 
-          {/* Time Mode Toggle */}
           <div className="mb-4 bg-gray-50 rounded-xl p-4 border border-gray-200">
-
-            {/* Current time display */}
-            <div className="flex items-center justify-between mb-3">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: bookForLater ? "12px" : "0" }}>
               <div>
                 <p className="text-sm font-medium text-gray-700">Time</p>
-                {!bookForLater && (
-                  <p className="text-xs text-green-600 mt-0.5">Using current time: {currentTimeDisplay}</p>
-                )}
+                {!bookForLater && <p className="text-xs text-green-600 mt-0.5">Using current time: {currentTimeDisplay}</p>}
               </div>
-              {/* Toggle */}
-              <div className="flex items-center gap-2">
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <span className="text-xs text-gray-500">Book for Later</span>
                 <button
                   onClick={() => setBookForLater(!bookForLater)}
-                  className={
-                    "relative w-11 h-6 rounded-full transition-colors " +
-                    (bookForLater ? "bg-green-500" : "bg-gray-300")
-                  }
+                  className={"relative w-11 h-6 rounded-full transition-colors " + (bookForLater ? "bg-green-500" : "bg-gray-300")}
                 >
-                  <span
-                    className={
-                      "absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform " +
-                      (bookForLater ? "translate-x-5" : "translate-x-0")
-                    }
-                  />
+                  <span className={"absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform " + (bookForLater ? "translate-x-5" : "translate-x-0")} />
                 </button>
               </div>
             </div>
-
-            {/* Later datetime picker — shown only when toggle is ON */}
             {bookForLater && (
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Select date and time:</label>
@@ -320,24 +402,18 @@ export default function App() {
                 />
                 {laterDatetime && (
                   <p className="text-xs text-green-600 mt-1">
-                    Predicting for: {new Date(laterDatetime).toLocaleString("en-IN", {
-                      weekday: "long", hour: "2-digit", minute: "2-digit", hour12: true,
-                    })}
+                    Predicting for: {new Date(laterDatetime).toLocaleString("en-IN", { weekday: "long", hour: "2-digit", minute: "2-digit", hour12: true })}
                   </p>
                 )}
               </div>
             )}
           </div>
 
-          <button
-            onClick={handlePredict}
-            className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-xl transition"
-          >
+          <button onClick={handlePredict} className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-xl transition">
             {loading ? "Finding best station..." : "Find Best Station Near Me"}
           </button>
         </div>
 
-        {/* No stations found */}
         {searched && !loading && results.length === 0 && (
           <div className="bg-yellow-50 border border-yellow-300 rounded-2xl p-6 text-center mb-6">
             <p className="text-yellow-700 font-semibold">No stations found within {radius} km</p>
@@ -345,46 +421,33 @@ export default function App() {
           </div>
         )}
 
-        {/* Best Station Banner */}
         {bestStation && (
           <div className="bg-green-600 text-white rounded-2xl p-5 mb-6 shadow-lg">
             <p className="text-xs uppercase tracking-widest mb-1 opacity-70">Best Station For You</p>
-            {usedTime && (
-              <p className="text-xs opacity-70 mb-2">Predicted for: {usedTime}</p>
-            )}
+            {usedTime && <p className="text-xs opacity-70 mb-2">Predicted for: {usedTime}</p>}
             <p className="text-xl font-bold">{bestStation.name}</p>
-            <p className="text-sm mt-1 opacity-90">
-              {bestStation.wait_time_minutes} min wait | {bestStation.distance} km away | Load: {bestStation.load}%
-            </p>
-            <button
-              onClick={() => openGoogleMaps(bestStation)}
-              className="mt-4 w-full bg-white text-green-700 font-bold py-2 rounded-xl hover:bg-green-50 transition"
-            >
-              Get Directions on Google Maps
-            </button>
+            <p className="text-sm mt-1 opacity-90">{bestStation.wait_time_minutes} min wait | {bestStation.distance} km away | Load: {bestStation.load}%</p>
+            <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
+              <button onClick={() => openGoogleMaps(bestStation)} style={{ flex: 1, background: "white", color: "#15803d", fontWeight: "700", border: "none", borderRadius: "12px", padding: "8px", cursor: "pointer" }}>
+                Get Directions
+              </button>
+              <button onClick={() => setBookingStation(bestStation)} style={{ flex: 1, background: "#fbbf24", color: "#1c1917", fontWeight: "700", border: "none", borderRadius: "12px", padding: "8px", cursor: "pointer" }}>
+                Book This Slot
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Map */}
         {searched && !loading && results.length > 0 && (
           <div className="bg-white rounded-2xl shadow p-4 mb-6">
             <h3 className="text-sm font-medium text-gray-600 mb-3">Nearby Stations Map</h3>
-            <MapContainer
-              center={userLocation ? [userLocation.lat, userLocation.lng] : [17.385, 78.4867]}
-              zoom={12}
-              style={{ height: "380px", borderRadius: "12px" }}
-            >
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution="© OpenStreetMap contributors"
-              />
+            <MapContainer center={userLocation ? [userLocation.lat, userLocation.lng] : [17.385, 78.4867]} zoom={12} style={{ height: "380px", borderRadius: "12px" }}>
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap contributors" />
               {userLocation && (
                 <>
                   <MapFlyTo center={[userLocation.lat, userLocation.lng]} />
                   <Marker position={[userLocation.lat, userLocation.lng]} icon={blueIcon}>
-                    <Popup>
-                      <div><strong>You are here</strong></div>
-                    </Popup>
+                    <Popup><div><strong>You are here</strong></div></Popup>
                   </Marker>
                 </>
               )}
@@ -392,50 +455,40 @@ export default function App() {
                 const station = STATIONS.find(st => st.id === s.id);
                 if (!station) return null;
                 return (
-                  <Marker
-                    key={s.id}
-                    position={[station.lat, station.lng]}
-                    icon={getIcon(s.wait_time_minutes)}
-                  >
-                    <StationPopup s={s} station={station} onDirections={openGoogleMaps} />
+                  <Marker key={s.id} position={[station.lat, station.lng]} icon={getIcon(s.wait_time_minutes)}>
+                    <StationPopup s={s} onDirections={openGoogleMaps} />
                   </Marker>
                 );
               })}
             </MapContainer>
-            <p className="text-xs text-gray-400 mt-2 text-center">
-              Blue = You | Green = Best | Yellow = Moderate | Red = Avoid
-            </p>
+            <p className="text-xs text-gray-400 mt-2 text-center">Blue = You | Green = Best | Yellow = Moderate | Red = Avoid</p>
           </div>
         )}
 
-        {/* Station Cards */}
         {searched && !loading && results.length > 0 && (
           <div>
             <h2 className="text-lg font-semibold text-gray-700 mb-3">
               {results.length} stations found within {radius} km
-              {usedTime && (
-                <span className="text-sm font-normal text-gray-400 ml-2">({usedTime})</span>
-              )}
+              {usedTime && <span className="text-sm font-normal text-gray-400 ml-2">({usedTime})</span>}
             </h2>
             {results.map((s, i) => (
-              <div
-                key={s.id}
-                className={"border-l-4 rounded-xl p-4 mb-3 shadow-sm " + getColor(s.wait_time_minutes)}
-              >
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
+              <div key={s.id} className={"border-l-4 rounded-xl p-4 mb-3 shadow-sm " + getColor(s.wait_time_minutes)}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ flex: 1 }}>
                     <p className="font-semibold text-base">{"#" + (i + 1) + " " + s.name}</p>
                     <p className="text-sm mt-1">{s.distance} km away | Load: {s.load}%</p>
                     <p className="text-xs mt-1">{getLabel(s.wait_time_minutes)}</p>
                   </div>
-                  <div className="text-right ml-3">
+                  <div style={{ textAlign: "right", marginLeft: "12px" }}>
                     <p className="text-2xl font-bold">{s.wait_time_minutes} min</p>
-                    <button
-                      onClick={() => openGoogleMaps(s)}
-                      className="mt-2 text-xs bg-white border border-gray-300 px-3 py-1 rounded-lg hover:bg-gray-50"
-                    >
-                      Directions
-                    </button>
+                    <div style={{ display: "flex", gap: "6px", marginTop: "8px", justifyContent: "flex-end" }}>
+                      <button onClick={() => openGoogleMaps(s)} className="text-xs bg-white border border-gray-300 px-3 py-1 rounded-lg hover:bg-gray-50">
+                        Directions
+                      </button>
+                      <button onClick={() => setBookingStation(s)} style={{ fontSize: "12px", background: "#fbbf24", color: "#1c1917", border: "none", borderRadius: "8px", padding: "4px 10px", cursor: "pointer", fontWeight: "600" }}>
+                        Book Slot
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -443,50 +496,24 @@ export default function App() {
           </div>
         )}
 
-        {/* About Section */}
         <div className="bg-white rounded-2xl shadow p-6 mt-6">
           <h2 className="text-xl font-bold text-green-700 mb-4">How This System Works</h2>
-
           <div className="mb-4">
             <h3 className="font-semibold text-gray-700 mb-1">Problem</h3>
-            <p className="text-sm text-gray-500">
-              Existing EV apps suggest the nearest station, not the best one.
-              A nearby station with 90% load and 45 min wait is worse than one 10 km away with 5 min wait.
-            </p>
+            <p className="text-sm text-gray-500">Existing EV apps suggest the nearest station, not the best one. A nearby station with 90% load and 45 min wait is worse than one 10 km away with 5 min wait.</p>
           </div>
-
           <div className="mb-4">
             <h3 className="font-semibold text-gray-700 mb-1">ML Model Used</h3>
-            <p className="text-sm text-gray-500">
-              This system uses a Random Forest algorithm. Two models are trained:
-            </p>
+            <p className="text-sm text-gray-500">This system uses a Random Forest algorithm. Two models are trained:</p>
             <ul className="text-sm text-gray-500 mt-2 space-y-1 list-disc list-inside">
               <li>Classifier predicts if a station is available</li>
               <li>Regressor predicts exact wait time in minutes</li>
             </ul>
           </div>
-
           <div className="mb-4">
-            <h3 className="font-semibold text-gray-700 mb-1">Input Features</h3>
-            <ul className="text-sm text-gray-500 mt-1 space-y-1 list-disc list-inside">
-              <li>Hour of day (auto-detected)</li>
-              <li>Day of week (auto-detected)</li>
-              <li>Current station load</li>
-              <li>Number of nearby stations</li>
-              <li>Distance from user</li>
-            </ul>
+            <h3 className="font-semibold text-gray-700 mb-1">Self-Improving Model</h3>
+            <p className="text-sm text-gray-500">Every booking saves the real station load, day, and hour. The owner can retrain the model anytime using this real data, making predictions smarter over time per station, per day, and per time slot.</p>
           </div>
-
-          <div className="mb-4">
-            <h3 className="font-semibold text-gray-700 mb-1">How Prediction Works</h3>
-            <p className="text-sm text-gray-500">
-              Your location and current time are detected automatically. Only stations within your
-              selected radius are considered. The ML model predicts wait time for each nearby station
-              and recommends the one with the lowest wait time. Use the Book for Later toggle to
-              predict availability for a future date and time.
-            </p>
-          </div>
-
           <div>
             <h3 className="font-semibold text-gray-700 mb-1">Model Accuracy</h3>
             <div className="flex gap-4 mt-2">
@@ -503,6 +530,21 @@ export default function App() {
         </div>
 
       </div>
+
+      {bookingStation && (
+        <BookingModal
+          station={bookingStation}
+          prefilledTime={getPrefilledTime()}
+          onClose={() => setBookingStation(null)}
+          onSuccess={() => {
+            setBookingStation(null);
+            setToast("Slot booked successfully!");
+            setTimeout(() => setToast(""), 3500);
+          }}
+        />
+      )}
+
+      {toast && <SuccessToast message={toast} onClose={() => setToast("")} />}
     </div>
   );
 }
