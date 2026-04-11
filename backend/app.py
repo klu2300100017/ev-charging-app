@@ -148,7 +148,14 @@ def predict():
             'distance': station['distance']
         })
 
-    results.sort(key=lambda x: x['wait_time_minutes'])
+    # Score = 60% wait time + 40% distance (normalized)
+    max_wait = max(r['wait_time_minutes'] for r in results) or 1
+    max_dist = max(r['distance'] for r in results) or 1
+
+    for r in results:
+        r['score'] = 0.6 * (r['wait_time_minutes'] / max_wait) + 0.4 * (r['distance'] / max_dist)
+
+    results.sort(key=lambda x: x['score'])
     return jsonify({"stations": results})
 
 # ---------------------------------------------------------------------------
