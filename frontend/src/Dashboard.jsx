@@ -18,6 +18,14 @@ export default function Dashboard() {
   const [retraining, setRetraining] = useState(false);
   const [retrainResult, setRetrainResult] = useState(null);
 
+  useEffect(() => {
+    if (localStorage.getItem("owner_auth") !== "true") {
+      window.location.href = "/owner-login";
+      return;
+    }
+    fetchBookings();
+  }, []);
+
   const fetchBookings = async () => {
     setLoading(true);
     try {
@@ -28,8 +36,6 @@ export default function Dashboard() {
     }
     setLoading(false);
   };
-
-  useEffect(() => { fetchBookings(); }, []);
 
   const handleCancel = async (id) => {
     if (!window.confirm("Cancel this booking?")) return;
@@ -58,12 +64,10 @@ export default function Dashboard() {
 
   const upcoming = bookings.filter(b => b.status === "confirmed");
   const past = bookings.filter(b => b.status === "completed" || b.status === "cancelled");
-
   const total = bookings.length;
   const confirmed = upcoming.length;
   const completed = bookings.filter(b => b.status === "completed").length;
   const cancelled = bookings.filter(b => b.status === "cancelled").length;
-
   const displayed = tab === "upcoming" ? upcoming : past;
 
   return (
@@ -75,12 +79,18 @@ export default function Dashboard() {
             <h1 style={{ fontSize: "26px", fontWeight: "800", color: "#15803d", margin: 0 }}>Owner Dashboard</h1>
             <p style={{ color: "#6b7280", fontSize: "14px", marginTop: "4px" }}>Manage all EV charging slot bookings</p>
           </div>
-          <div style={{ display: "flex", gap: "10px" }}>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
             <button onClick={fetchBookings} style={{ background: "#1d4ed8", color: "white", border: "none", borderRadius: "10px", padding: "10px 18px", cursor: "pointer", fontSize: "14px", fontWeight: "600" }}>
               Refresh
             </button>
             <button onClick={handleRetrain} disabled={retraining} style={{ background: retraining ? "#86efac" : "#16a34a", color: "white", border: "none", borderRadius: "10px", padding: "10px 18px", cursor: retraining ? "not-allowed" : "pointer", fontSize: "14px", fontWeight: "600" }}>
               {retraining ? "Retraining..." : "Retrain Model"}
+            </button>
+            <button
+              onClick={() => { localStorage.removeItem("owner_auth"); window.location.href = "/owner-login"; }}
+              style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "10px", padding: "10px 18px", cursor: "pointer", fontSize: "14px", fontWeight: "600" }}
+            >
+              Logout
             </button>
           </div>
         </div>
@@ -118,7 +128,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        <div style={{ display: "flex", gap: "0", marginBottom: "20px", background: "#e5e7eb", borderRadius: "12px", padding: "4px" }}>
+        <div style={{ display: "flex", marginBottom: "20px", background: "#e5e7eb", borderRadius: "12px", padding: "4px" }}>
           {[
             { key: "upcoming", label: "Upcoming Bookings (" + confirmed + ")" },
             { key: "past", label: "Past Orders (" + (completed + cancelled) + ")" },
@@ -126,19 +136,7 @@ export default function Dashboard() {
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              style={{
-                flex: 1,
-                padding: "10px",
-                borderRadius: "10px",
-                border: "none",
-                cursor: "pointer",
-                fontSize: "14px",
-                fontWeight: "600",
-                background: tab === t.key ? "white" : "transparent",
-                color: tab === t.key ? "#15803d" : "#6b7280",
-                boxShadow: tab === t.key ? "0 1px 4px rgba(0,0,0,0.1)" : "none",
-                transition: "all 0.2s",
-              }}
+              style={{ flex: 1, padding: "10px", borderRadius: "10px", border: "none", cursor: "pointer", fontSize: "14px", fontWeight: "600", background: tab === t.key ? "white" : "transparent", color: tab === t.key ? "#15803d" : "#6b7280", boxShadow: tab === t.key ? "0 1px 4px rgba(0,0,0,0.1)" : "none", transition: "all 0.2s" }}
             >
               {t.label}
             </button>
@@ -157,17 +155,7 @@ export default function Dashboard() {
           displayed.map(b => {
             const sc = STATUS_COLORS[b.status] || STATUS_COLORS.confirmed;
             return (
-              <div
-                key={b.id}
-                style={{
-                  background: "white",
-                  borderRadius: "14px",
-                  padding: "18px 20px",
-                  marginBottom: "12px",
-                  boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
-                  borderLeft: "5px solid " + sc.border,
-                }}
-              >
+              <div key={b.id} style={{ background: "white", borderRadius: "14px", padding: "18px 20px", marginBottom: "12px", boxShadow: "0 1px 4px rgba(0,0,0,0.08)", borderLeft: "5px solid " + sc.border }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
@@ -176,37 +164,20 @@ export default function Dashboard() {
                         {b.status.toUpperCase()}
                       </span>
                     </div>
-                    <p style={{ fontSize: "14px", color: "#374151", margin: "3px 0" }}>
-                      Station: <strong>{b.station_name}</strong>
-                    </p>
-                    <p style={{ fontSize: "14px", color: "#374151", margin: "3px 0" }}>
-                      Phone: {b.phone} &nbsp;|&nbsp; Vehicle: <strong>{b.vehicle_no}</strong>
-                    </p>
-                    <p style={{ fontSize: "14px", color: "#374151", margin: "3px 0" }}>
-                      Slot: <strong>{b.slot_time}</strong>
-                    </p>
+                    <p style={{ fontSize: "14px", color: "#374151", margin: "3px 0" }}>Station: <strong>{b.station_name}</strong></p>
+                    <p style={{ fontSize: "14px", color: "#374151", margin: "3px 0" }}>Phone: {b.phone} | Vehicle: <strong>{b.vehicle_no}</strong></p>
+                    <p style={{ fontSize: "14px", color: "#374151", margin: "3px 0" }}>Slot: <strong>{b.slot_time}</strong></p>
                     <p style={{ fontSize: "12px", color: "#6b7280", margin: "3px 0" }}>
-                      Hour: {b.hour_of_day}:00 &nbsp;|&nbsp;
-                      Day: {DAYS[b.day_of_week] || "N/A"} &nbsp;|&nbsp;
-                      Load at booking: {b.load_at_booking}%
+                      Hour: {b.hour_of_day}:00 | Day: {DAYS[b.day_of_week] || "N/A"} | Load at booking: {b.load_at_booking}%
                     </p>
-                    <p style={{ fontSize: "11px", color: "#9ca3af", marginTop: "6px" }}>
-                      Booked on: {b.created_at}
-                    </p>
+                    <p style={{ fontSize: "11px", color: "#9ca3af", marginTop: "6px" }}>Booked on: {b.created_at}</p>
                   </div>
-
                   {b.status === "confirmed" && (
                     <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginLeft: "16px" }}>
-                      <button
-                        onClick={() => handleComplete(b.id)}
-                        style={{ background: "#dbeafe", color: "#1e40af", border: "none", borderRadius: "8px", padding: "8px 14px", cursor: "pointer", fontSize: "12px", fontWeight: "700", whiteSpace: "nowrap" }}
-                      >
+                      <button onClick={() => handleComplete(b.id)} style={{ background: "#dbeafe", color: "#1e40af", border: "none", borderRadius: "8px", padding: "8px 14px", cursor: "pointer", fontSize: "12px", fontWeight: "700", whiteSpace: "nowrap" }}>
                         Mark Complete
                       </button>
-                      <button
-                        onClick={() => handleCancel(b.id)}
-                        style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "8px", padding: "8px 14px", cursor: "pointer", fontSize: "12px", fontWeight: "700", whiteSpace: "nowrap" }}
-                      >
+                      <button onClick={() => handleCancel(b.id)} style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "8px", padding: "8px 14px", cursor: "pointer", fontSize: "12px", fontWeight: "700", whiteSpace: "nowrap" }}>
                         Cancel
                       </button>
                     </div>
@@ -216,7 +187,6 @@ export default function Dashboard() {
             );
           })
         )}
-
       </div>
     </div>
   );

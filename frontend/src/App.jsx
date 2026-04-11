@@ -117,26 +117,20 @@ function getNowDatetimeLocal() {
 }
 
 function BookingModal({ station, prefilledTime, onClose, onSuccess }) {
-  const [form, setForm] = useState({
-    user_name: "",
-    phone: "",
-    vehicle_no: "",
-    slot_time: prefilledTime || getNowDatetimeLocal(),
-  });
+  const [slotTime, setSlotTime] = useState(prefilledTime || getNowDatetimeLocal());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
-
   const handleSubmit = async () => {
-    if (!form.user_name || !form.phone || !form.vehicle_no || !form.slot_time) {
-      setError("Please fill all fields.");
+    const token = localStorage.getItem("token");
+    if (!token) {
+      window.location.href = "/login";
       return;
     }
     setSubmitting(true);
     setError("");
 
-    const slotDate = new Date(form.slot_time);
+    const slotDate = new Date(slotTime);
     const slotHour = slotDate.getHours();
     const slotDay = slotDate.getDay() === 0 ? 6 : slotDate.getDay() - 1;
     const stationData = STATIONS.find(s => s.id === station.id);
@@ -145,24 +139,27 @@ function BookingModal({ station, prefilledTime, onClose, onSuccess }) {
       await axios.post(BACKEND + "/api/book", {
         station_id: station.id,
         station_name: station.name,
-        user_name: form.user_name,
-        phone: form.phone,
-        vehicle_no: form.vehicle_no,
         slot_time: slotDate.toLocaleString("en-IN"),
         hour_of_day: slotHour,
         day_of_week: slotDay,
         load_at_booking: stationData ? stationData.load : 70,
         nearby_stations: stationData ? stationData.nearby : 2,
         distance_km: station.distance || 1.0,
+      }, {
+        headers: { Authorization: "Bearer " + token }
       });
       onSuccess();
-    } catch {
-      setError("Booking failed. Make sure backend is running.");
+    } catch (err) {
+      if (err.response?.status === 401) {
+        window.location.href = "/login";
+      } else {
+        setError("Booking failed. Please try again.");
+      }
     }
     setSubmitting(false);
   };
 
-  const slotDate = new Date(form.slot_time);
+  const slotDate = new Date(slotTime);
   const isNow = Math.abs(slotDate - new Date()) < 5 * 60 * 1000;
 
   return (
@@ -171,7 +168,7 @@ function BookingModal({ station, prefilledTime, onClose, onSuccess }) {
       onClick={onClose}
     >
       <div
-        style={{ background: "white", borderRadius: "16px", padding: "24px", width: "100%", maxWidth: "420px" }}
+        style={{ background: "white", borderRadius: "16px", padding: "24px", width: "100%", maxWidth: "400px" }}
         onClick={e => e.stopPropagation()}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
@@ -181,27 +178,16 @@ function BookingModal({ station, prefilledTime, onClose, onSuccess }) {
 
         <div style={{ background: "#f0fdf4", borderRadius: "10px", padding: "10px 14px", marginBottom: "16px" }}>
           <p style={{ fontWeight: "600", fontSize: "14px", color: "#166534", margin: 0 }}>{station.name}</p>
-          <p style={{ fontSize: "12px", color: "#4b5563", marginTop: "4px", margin: "4px 0 0 0" }}>
+          <p style={{ fontSize: "12px", color: "#4b5563", margin: "4px 0 0 0" }}>
             {station.wait_time_minutes} min predicted wait | {station.distance} km away
           </p>
         </div>
 
-        {[
-          { label: "Full Name", name: "user_name", placeholder: "Enter your name" },
-          { label: "Phone Number", name: "phone", placeholder: "Enter your phone number" },
-          { label: "Vehicle Number", name: "vehicle_no", placeholder: "e.g. TS09EX1234" },
-        ].map(field => (
-          <div key={field.name} style={{ marginBottom: "12px" }}>
-            <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#374151", marginBottom: "4px" }}>{field.label}</label>
-            <input
-              name={field.name}
-              value={form[field.name]}
-              onChange={handleChange}
-              placeholder={field.placeholder}
-              style={{ width: "100%", border: "1px solid #d1d5db", borderRadius: "8px", padding: "8px 12px", fontSize: "14px", boxSizing: "border-box" }}
-            />
-          </div>
-        ))}
+        <div style={{ background: "#fffbeb", borderRadius: "10px", padding: "10px 14px", marginBottom: "16px", border: "1px solid #fde68a" }}>
+          <p style={{ fontSize: "12px", color: "#92400e", margin: 0 }}>
+            Your name, phone and vehicle number will be auto-filled from your profile.
+          </p>
+        </div>
 
         <div style={{ marginBottom: "16px" }}>
           <label style={{ display: "block", fontSize: "13px", fontWeight: "500", color: "#374151", marginBottom: "4px" }}>
@@ -209,16 +195,13 @@ function BookingModal({ station, prefilledTime, onClose, onSuccess }) {
           </label>
           <input
             type="datetime-local"
-            name="slot_time"
-            value={form.slot_time}
+            value={slotTime}
             min={getNowDatetimeLocal()}
-            onChange={handleChange}
+            onChange={e => setSlotTime(e.target.value)}
             style={{ width: "100%", border: "1px solid #d1d5db", borderRadius: "8px", padding: "8px 12px", fontSize: "14px", boxSizing: "border-box" }}
           />
           <p style={{ fontSize: "11px", color: isNow ? "#16a34a" : "#6b7280", marginTop: "4px" }}>
-            {isNow
-              ? "Booking for right now"
-              : "Booking for: " + slotDate.toLocaleString("en-IN", { weekday: "long", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: true })}
+            {isNow ? "Booking for right now" : "Booking for: " + slotDate.toLocaleString("en-IN", { weekday: "long", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: true })}
           </p>
         </div>
 
@@ -261,6 +244,9 @@ export default function App() {
   const [usedTime, setUsedTime] = useState(null);
   const [bookingStation, setBookingStation] = useState(null);
   const [toast, setToast] = useState("");
+
+  const isLoggedIn = !!localStorage.getItem("token");
+  const user = isLoggedIn ? JSON.parse(localStorage.getItem("user") || "{}") : null;
 
   const getHourAndDay = () => {
     if (bookForLater && laterDatetime) {
@@ -315,14 +301,12 @@ export default function App() {
 
     try {
       const res = await axios.post(BACKEND + "/api/predict", {
-        hour,
-        day_of_week: day,
-        stations: nearbyStations,
+        hour, day_of_week: day, stations: nearbyStations,
       });
       setResults(res.data.stations);
       setBestStation(res.data.stations[0]);
     } catch {
-      alert("Backend not running! Start Flask first.");
+      alert("Backend not running! Please try again.");
     }
     setLoading(false);
   };
@@ -331,6 +315,14 @@ export default function App() {
     const found = STATIONS.find(s => s.id === station.id);
     if (!found) return;
     window.open("https://www.google.com/maps/dir/?api=1&destination=" + found.lat + "," + found.lng + "&travelmode=driving", "_blank");
+  };
+
+  const handleBookClick = (station) => {
+    if (!isLoggedIn) {
+      window.location.href = "/login";
+      return;
+    }
+    setBookingStation(station);
   };
 
   const getColor = (wait) => {
@@ -351,11 +343,40 @@ export default function App() {
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-2xl mx-auto">
 
+        {/* Header */}
         <div className="text-center mb-6">
           <h1 className="text-3xl font-bold text-green-700">EV Charging Finder</h1>
           <p className="text-gray-500 text-sm mt-1">Finds the best charging station near you using AI</p>
+          <div style={{ display: "flex", justifyContent: "center", gap: "10px", marginTop: "12px", flexWrap: "wrap" }}>
+            {isLoggedIn ? (
+              <>
+                <span style={{ fontSize: "13px", color: "#374151", alignSelf: "center" }}>
+                  Hi, <strong>{user?.name}</strong>
+                </span>
+                <a href="/my-bookings" style={{ background: "#f0fdf4", color: "#16a34a", border: "1px solid #86efac", borderRadius: "8px", padding: "6px 14px", fontSize: "13px", fontWeight: "600", textDecoration: "none" }}>
+                  My Bookings
+                </a>
+                <button
+                  onClick={() => { localStorage.removeItem("token"); localStorage.removeItem("user"); window.location.reload(); }}
+                  style={{ background: "#fee2e2", color: "#dc2626", border: "none", borderRadius: "8px", padding: "6px 14px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              <>
+                <a href="/login" style={{ background: "#16a34a", color: "white", borderRadius: "8px", padding: "6px 14px", fontSize: "13px", fontWeight: "600", textDecoration: "none" }}>
+                  Login
+                </a>
+                <a href="/register" style={{ background: "#f0fdf4", color: "#16a34a", border: "1px solid #86efac", borderRadius: "8px", padding: "6px 14px", fontSize: "13px", fontWeight: "600", textDecoration: "none" }}>
+                  Register
+                </a>
+              </>
+            )}
+          </div>
         </div>
 
+        {/* Form */}
         <div className="bg-white rounded-2xl shadow p-6 mb-6">
           <div className="mb-4">
             <button onClick={handleGetLocation} className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-3 rounded-xl transition text-sm">
@@ -431,7 +452,7 @@ export default function App() {
               <button onClick={() => openGoogleMaps(bestStation)} style={{ flex: 1, background: "white", color: "#15803d", fontWeight: "700", border: "none", borderRadius: "12px", padding: "8px", cursor: "pointer" }}>
                 Get Directions
               </button>
-              <button onClick={() => setBookingStation(bestStation)} style={{ flex: 1, background: "#fbbf24", color: "#1c1917", fontWeight: "700", border: "none", borderRadius: "12px", padding: "8px", cursor: "pointer" }}>
+              <button onClick={() => handleBookClick(bestStation)} style={{ flex: 1, background: "#fbbf24", color: "#1c1917", fontWeight: "700", border: "none", borderRadius: "12px", padding: "8px", cursor: "pointer" }}>
                 Book This Slot
               </button>
             </div>
@@ -485,7 +506,7 @@ export default function App() {
                       <button onClick={() => openGoogleMaps(s)} className="text-xs bg-white border border-gray-300 px-3 py-1 rounded-lg hover:bg-gray-50">
                         Directions
                       </button>
-                      <button onClick={() => setBookingStation(s)} style={{ fontSize: "12px", background: "#fbbf24", color: "#1c1917", border: "none", borderRadius: "8px", padding: "4px 10px", cursor: "pointer", fontWeight: "600" }}>
+                      <button onClick={() => handleBookClick(s)} style={{ fontSize: "12px", background: "#fbbf24", color: "#1c1917", border: "none", borderRadius: "8px", padding: "4px 10px", cursor: "pointer", fontWeight: "600" }}>
                         Book Slot
                       </button>
                     </div>
@@ -512,7 +533,7 @@ export default function App() {
           </div>
           <div className="mb-4">
             <h3 className="font-semibold text-gray-700 mb-1">Self-Improving Model</h3>
-            <p className="text-sm text-gray-500">Every booking saves the real station load, day, and hour. The owner can retrain the model anytime using this real data, making predictions smarter over time per station, per day, and per time slot.</p>
+            <p className="text-sm text-gray-500">Every booking saves the real station load, day, and hour. The owner can retrain the model anytime using this real data, making predictions smarter over time.</p>
           </div>
           <div>
             <h3 className="font-semibold text-gray-700 mb-1">Model Accuracy</h3>

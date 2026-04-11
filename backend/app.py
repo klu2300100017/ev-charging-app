@@ -1,12 +1,19 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 import joblib
 import numpy as np
 import mysql.connector
-from datetime import datetime
+import bcrypt
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 CORS(app)
+
+# JWT Config
+app.config["JWT_SECRET_KEY"] = "ev-charging-super-secret-key-2026"
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=7)
+jwt = JWTManager(app)
 
 clf = joblib.load('model_avail.pkl')
 reg = joblib.load('model_wait.pkl')
@@ -29,6 +36,87 @@ def get_db():
 @app.route('/api/health', methods=['GET'])
 def health():
     return jsonify({"status": "ok"})
+
+# ---------------------------------------------------------------------------
+# Register
+# ---------------------------------------------------------------------------
+@app.route('/api/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    required = ['name', 'phone', 'vehicle_no', 'email', 'password']
+    for field in required:
+        if not data.get(field):
+            return jsonify({"error": "Missing field: " + field}), 400
+
+    hashed = bcrypt.hashpw(data['password'].encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO users (name, phone, vehicle_no, email, password)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (data['name'], data['phone'], data['vehicle_no'], data['email'], hashed))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"message": "Registration successful!"})
+    except mysql.connector.errors.IntegrityError:
+        return jsonify({"error": "Email already registered."}), 409
+
+# ---------------------------------------------------------------------------
+# Login
+# ---------------------------------------------------------------------------
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
+
+    if not email or not password:
+        return jsonify({"error": "Email and password required."}), 400
+
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if not user:
+        return jsonify({"error": "Email not found."}), 404
+
+    if not bcrypt.checkpw(password.encode('utf-8'), user['password'].encode('utf-8')):
+        return jsonify({"error": "Incorrect password."}), 401
+
+    token = create_access_token(identity=str(user['id']))
+    return jsonify({
+        "token": token,
+        "user": {
+            "id": user['id'],
+            "name": user['name'],
+            "phone": user['phone'],
+            "vehicle_no": user['vehicle_no'],
+            "email": user['email'],
+        }
+    })
+
+# ---------------------------------------------------------------------------
+# Get current user profile
+# ---------------------------------------------------------------------------
+@app.route('/api/me', methods=['GET'])
+@jwt_required()
+def me():
+    user_id = get_jwt_identity()
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT id, name, phone, vehicle_no, email FROM users WHERE id = %s", (user_id,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    return jsonify({"user": user})
 
 # ---------------------------------------------------------------------------
 # ML Prediction
@@ -64,37 +152,49 @@ def predict():
     return jsonify({"stations": results})
 
 # ---------------------------------------------------------------------------
-# Book a slot
+# Book a slot (requires login)
 # ---------------------------------------------------------------------------
 @app.route('/api/book', methods=['POST'])
+@jwt_required()
 def book_slot():
+    user_id = get_jwt_identity()
     data = request.get_json()
 
-    required = ['station_id', 'station_name', 'user_name', 'phone', 'vehicle_no', 'slot_time']
+    required = ['station_id', 'station_name', 'slot_time']
     for field in required:
         if not data.get(field):
             return jsonify({"error": "Missing field: " + field}), 400
 
+    # Fetch user details automatically
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+    user = cursor.fetchone()
+
+    if not user:
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "User not found"}), 404
+
     cursor.execute("""
         INSERT INTO bookings (
             station_id, station_name, user_name, phone, vehicle_no, slot_time,
-            hour_of_day, day_of_week, load_at_booking, nearby_stations, distance_km
+            hour_of_day, day_of_week, load_at_booking, nearby_stations, distance_km, user_id
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         data['station_id'],
         data['station_name'],
-        data['user_name'],
-        data['phone'],
-        data['vehicle_no'],
+        user['name'],
+        user['phone'],
+        user['vehicle_no'],
         data['slot_time'],
         data.get('hour_of_day', 0),
         data.get('day_of_week', 0),
         data.get('load_at_booking', 70),
         data.get('nearby_stations', 2),
         data.get('distance_km', 1.0),
+        user_id,
     ))
     conn.commit()
     cursor.close()
@@ -103,22 +203,36 @@ def book_slot():
     return jsonify({"message": "Slot booked successfully!"})
 
 # ---------------------------------------------------------------------------
-# Get all bookings
+# Get bookings for logged-in user
+# ---------------------------------------------------------------------------
+@app.route('/api/my-bookings', methods=['GET'])
+@jwt_required()
+def my_bookings():
+    user_id = get_jwt_identity()
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT * FROM bookings WHERE user_id = %s ORDER BY created_at DESC",
+        (user_id,)
+    )
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    for row in rows:
+        if isinstance(row.get('created_at'), datetime):
+            row['created_at'] = row['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+
+    return jsonify({"bookings": rows})
+
+# ---------------------------------------------------------------------------
+# Get all bookings (owner only)
 # ---------------------------------------------------------------------------
 @app.route('/api/bookings', methods=['GET'])
 def get_bookings():
-    station_id = request.args.get('station_id')
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
-
-    if station_id:
-        cursor.execute(
-            "SELECT * FROM bookings WHERE station_id = %s ORDER BY created_at DESC",
-            (station_id,)
-        )
-    else:
-        cursor.execute("SELECT * FROM bookings ORDER BY created_at DESC")
-
+    cursor.execute("SELECT * FROM bookings ORDER BY created_at DESC")
     rows = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -136,10 +250,7 @@ def get_bookings():
 def cancel_booking(booking_id):
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE bookings SET status = 'cancelled' WHERE id = %s",
-        (booking_id,)
-    )
+    cursor.execute("UPDATE bookings SET status = 'cancelled' WHERE id = %s", (booking_id,))
     conn.commit()
     cursor.close()
     conn.close()
@@ -152,17 +263,14 @@ def cancel_booking(booking_id):
 def complete_booking(booking_id):
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE bookings SET status = 'completed' WHERE id = %s",
-        (booking_id,)
-    )
+    cursor.execute("UPDATE bookings SET status = 'completed' WHERE id = %s", (booking_id,))
     conn.commit()
     cursor.close()
     conn.close()
     return jsonify({"message": "Booking marked as completed"})
 
 # ---------------------------------------------------------------------------
-# Retrain model with real booking data
+# Retrain model
 # ---------------------------------------------------------------------------
 @app.route('/api/retrain', methods=['POST'])
 def retrain():
@@ -202,23 +310,13 @@ def retrain():
             load = int(b.get('load_at_booking') or 70)
             nearby = int(b.get('nearby_stations') or 2)
             distance = float(b.get('distance_km') or 1.0)
-
-            wait = round(
-                load * 0.4 +
-                (10 if 7 <= hour <= 9 or 17 <= hour <= 20 else 0),
-                1
-            )
+            wait = round(load * 0.4 + (10 if 7 <= hour <= 9 or 17 <= hour <= 20 else 0), 1)
             wait = min(wait, 90)
             is_avail = 1 if load < 80 else 0
-
             new_rows.append({
-                'hour_of_day': hour,
-                'day_of_week': day,
-                'current_load_percent': load,
-                'nearby_stations': nearby,
-                'distance_km': distance,
-                'wait_time_minutes': wait,
-                'is_available': is_avail,
+                'hour_of_day': hour, 'day_of_week': day,
+                'current_load_percent': load, 'nearby_stations': nearby,
+                'distance_km': distance, 'wait_time_minutes': wait, 'is_available': is_avail,
             })
         except Exception:
             continue

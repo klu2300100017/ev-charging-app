@@ -6,4 +6,5 @@ numpy
 joblib
 gunicorn
 mysql-connector-python
-requests
+flask-jwt-extended
+bcrypt
