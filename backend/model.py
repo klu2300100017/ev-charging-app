@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, mean_absolute_error
 import joblib
 
+
 # Generate synthetic dataset
 np.random.seed(42)
 n = 2000
