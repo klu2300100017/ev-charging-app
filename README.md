@@ -19,7 +19,7 @@ Existing systems suggest the closest station regardless of congestion or wait ti
 
 ## 🔥 Key Highlights
 
-- 97% Availability Accuracy on trained model
+- 85% Availability Accuracy on trained model
 - 2.8 min MAE on wait time prediction
 - Self-improving — model retrains with real booking data from the owner dashboard
 - 30+ stations across Telangana and Andhra Pradesh
