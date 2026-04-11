@@ -10,7 +10,6 @@ from datetime import datetime, timedelta
 app = Flask(__name__)
 CORS(app)
 
-# JWT Config
 app.config["JWT_SECRET_KEY"] = "ev-charging-super-secret-key-2026"
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=7)
 jwt = JWTManager(app)
@@ -18,9 +17,6 @@ jwt = JWTManager(app)
 clf = joblib.load('model_avail.pkl')
 reg = joblib.load('model_wait.pkl')
 
-# ---------------------------------------------------------------------------
-# MySQL connection
-# ---------------------------------------------------------------------------
 def get_db():
     return mysql.connector.connect(
         host="mainline.proxy.rlwy.net",
@@ -119,7 +115,7 @@ def me():
     return jsonify({"user": user})
 
 # ---------------------------------------------------------------------------
-# ML Prediction
+# ML Prediction — uses live load from stations table
 # ---------------------------------------------------------------------------
 @app.route('/api/predict', methods=['POST'])
 def predict():
@@ -128,27 +124,39 @@ def predict():
     day = data['day_of_week']
     stations = data['stations']
 
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
+
     results = []
     for station in stations:
+        # Fetch live load from stations table
+        cursor.execute("SELECT current_load FROM stations WHERE id = %s", (station['id'],))
+        row = cursor.fetchone()
+        live_load = row['current_load'] if row else station['load']
+
         features = np.array([[
             hour,
             day,
-            station['load'],
+            live_load,
             station['nearby'],
             station['distance']
         ]])
+
         is_available = int(clf.predict(features)[0])
         wait_time = round(float(reg.predict(features)[0]), 1)
+
         results.append({
             'id': station['id'],
             'name': station['name'],
             'is_available': is_available,
             'wait_time_minutes': wait_time,
-            'load': station['load'],
+            'load': live_load,
             'distance': station['distance']
         })
 
-    # Score = 60% wait time + 40% distance (normalized)
+    cursor.close()
+    conn.close()
+
     max_wait = max(r['wait_time_minutes'] for r in results) or 1
     max_dist = max(r['distance'] for r in results) or 1
 
@@ -159,7 +167,7 @@ def predict():
     return jsonify({"stations": results})
 
 # ---------------------------------------------------------------------------
-# Book a slot (requires login)
+# Book a slot — increases station load by 5%
 # ---------------------------------------------------------------------------
 @app.route('/api/book', methods=['POST'])
 @jwt_required()
@@ -172,7 +180,6 @@ def book_slot():
         if not data.get(field):
             return jsonify({"error": "Missing field: " + field}), 400
 
-    # Fetch user details automatically
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
@@ -183,6 +190,7 @@ def book_slot():
         conn.close()
         return jsonify({"error": "User not found"}), 404
 
+    # Insert booking
     cursor.execute("""
         INSERT INTO bookings (
             station_id, station_name, user_name, phone, vehicle_no, slot_time,
@@ -203,6 +211,13 @@ def book_slot():
         data.get('distance_km', 1.0),
         user_id,
     ))
+
+    # Increase station load by 5% (max 100)
+    cursor.execute(
+        "UPDATE stations SET current_load = LEAST(current_load + 5, 100) WHERE id = %s",
+        (data['station_id'],)
+    )
+
     conn.commit()
     cursor.close()
     conn.close()
@@ -233,7 +248,7 @@ def my_bookings():
     return jsonify({"bookings": rows})
 
 # ---------------------------------------------------------------------------
-# Get all bookings (owner only)
+# Get all bookings (owner)
 # ---------------------------------------------------------------------------
 @app.route('/api/bookings', methods=['GET'])
 def get_bookings():
@@ -251,26 +266,52 @@ def get_bookings():
     return jsonify({"bookings": rows})
 
 # ---------------------------------------------------------------------------
-# Cancel a booking
+# Cancel a booking — decreases station load by 5%
 # ---------------------------------------------------------------------------
 @app.route('/api/bookings/<int:booking_id>/cancel', methods=['POST'])
 def cancel_booking(booking_id):
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
+
+    # Get station_id before cancelling
+    cursor.execute("SELECT station_id FROM bookings WHERE id = %s", (booking_id,))
+    booking = cursor.fetchone()
+
     cursor.execute("UPDATE bookings SET status = 'cancelled' WHERE id = %s", (booking_id,))
+
+    # Decrease station load by 5% (min 0)
+    if booking:
+        cursor.execute(
+            "UPDATE stations SET current_load = GREATEST(current_load - 5, 0) WHERE id = %s",
+            (booking['station_id'],)
+        )
+
     conn.commit()
     cursor.close()
     conn.close()
     return jsonify({"message": "Booking cancelled"})
 
 # ---------------------------------------------------------------------------
-# Mark a booking as completed
+# Complete a booking — decreases station load by 5%
 # ---------------------------------------------------------------------------
 @app.route('/api/bookings/<int:booking_id>/complete', methods=['POST'])
 def complete_booking(booking_id):
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
+
+    # Get station_id before completing
+    cursor.execute("SELECT station_id FROM bookings WHERE id = %s", (booking_id,))
+    booking = cursor.fetchone()
+
     cursor.execute("UPDATE bookings SET status = 'completed' WHERE id = %s", (booking_id,))
+
+    # Decrease station load by 5% (min 0)
+    if booking:
+        cursor.execute(
+            "UPDATE stations SET current_load = GREATEST(current_load - 5, 0) WHERE id = %s",
+            (booking['station_id'],)
+        )
+
     conn.commit()
     cursor.close()
     conn.close()
